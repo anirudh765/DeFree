@@ -90,13 +90,13 @@ contract DecentralizedFreelanceMarket {
         _;
     }
 
-    function registerUser(UserType userType, string memory name, string memory description, string memory email) external {
+    function registerUser(UserType userType, string memory name, string memory email) external {
         require(users[msg.sender].wallet == address(0), "User already registered");
         users[msg.sender] = User({
             wallet: msg.sender,
             userType: userType,
             name: name,
-            description: description,
+            description: "",
             email: email,
             credits: 0,
             skills: new string[](0),
