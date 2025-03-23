@@ -10,8 +10,7 @@ The Decentralized Skill-Based Freelance Marketplace is a Web3-powered platform t
 - **On-Chain Reputation System:** Freelancers earn reputation NFTs based on their performance.
 - **Decentralized Dispute Resolution:** Community-based DAO voting for fair dispute settlements.
 - **Web3 Authentication:** Users sign in with their crypto wallets.
-- **AI-Enhanced Matching:** AI helps match clients with the best freelancers based on skills and reviews.
-
+  
 ## Tech Stack
 
 - **Frontend:** React, TailwindCSS
@@ -26,33 +25,24 @@ The Decentralized Skill-Based Freelance Marketplace is a Web3-powered platform t
 
 - Node.js installed
 - MetaMask browser extension
-- Hardhat for smart contract development
 
-### Steps
+### Steps 
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/your-repo-name.git
-   cd your-repo-name
+   git clone https://github.com/DeFree.git
+   cd DeFree
    ```
 2. **Install dependencies:**
    ```bash
    npm install
    ```
-3. **Start the development server:**
+3. **Open React-vite**
    ```bash
-   npm start
+   cd fnd
+   npm install
+   npm run dev
    ```
-4. **Deploy smart contracts:**
-   ```bash
-   npx hardhat run scripts/deploy.js --network goerli
-   ```
-
-## Smart Contract Deployment
-
-- **Compile Contracts:** `npx hardhat compile`
-- **Deploy to Testnet:** `npx hardhat run scripts/deploy.js --network goerli`
-- **Verify Contracts:** `npx hardhat verify --network goerli <contract_address>`
 
 ## Usage
 
@@ -72,6 +62,8 @@ The Decentralized Skill-Based Freelance Marketplace is a Web3-powered platform t
 5. Create a pull request.
 
 ## Demo Video
+https://vimeo.com/1068523716?share=copy#t=0
 
+## due to time contraints voting system upon disputes has not been done.
 
 
