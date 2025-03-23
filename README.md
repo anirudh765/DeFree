@@ -15,11 +15,10 @@ The Decentralized Skill-Based Freelance Marketplace is a Web3-powered platform t
 ## Tech Stack
 
 - **Frontend:** React, TailwindCSS
-- **Backend:** Node.js, Express
 - **Blockchain:** Solidity, Hardhat
-- **Storage:** IPFS/Filecoin for decentralized data storage
-- **Authentication:** Web3.js / ethers.js with MetaMask
-- **Smart Contracts:** Ethereum / Polygon
+- **Storage:** IPFS for decentralized data storage
+- **Authentication:**  ethers.js with MetaMask
+- **Smart Contracts:** Ethereum 
 
 ## Installation
 
