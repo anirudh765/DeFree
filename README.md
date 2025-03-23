@@ -72,12 +72,7 @@ The Decentralized Skill-Based Freelance Marketplace is a Web3-powered platform t
 4. Push to the branch (`git push origin feature-name`).
 5. Create a pull request.
 
-## License
+**Demo video**
 
-This project is licensed under the MIT License.
-
-## Contact
-
-For questions or collaboration, contact [[your-email@example.com](mailto\:your-email@example.com)].
 
 
