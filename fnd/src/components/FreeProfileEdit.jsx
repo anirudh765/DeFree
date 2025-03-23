@@ -5,7 +5,7 @@ import { ethers } from 'ethers';
 import axios from 'axios';
 import contractArtifact from '../../../artifacts/contracts/DecentralizedFreelanceMarket.sol/DecentralizedFreelanceMarket.json';
 
-const contractAddress = "0x246f33CC52c4fcF82Ae43E2284E27414702A3A40";
+const contractAddress = "0xa261f0f9740e7eb019d6e0311f0327fe205290f1";
 
 function EditProfile() {
   const navigate = useNavigate();
@@ -14,7 +14,8 @@ function EditProfile() {
     description: "",
     email: "",
     skills: [],
-    documents: []
+    documents: [],
+    userType: 1 // default to client (1); Freelancer: 0
   });
   const [newSkill, setNewSkill] = useState("");
   const [loading, setLoading] = useState(false);
@@ -29,36 +30,32 @@ function EditProfile() {
       }
       try {
         const provider = new ethers.BrowserProvider(window.ethereum);
-        const signer = await provider.getSigner();
+                const signer = await provider.getSigner();
+                const userAddress = await signer.getAddress();
         const contract = new ethers.Contract(
           contractAddress,
           contractArtifact.abi || contractArtifact,
           signer
         );
-        // getProfile() returns: (name, description, email, skills, documents, credits, reviews, userType)
-        const result = await contract.getProfile();
-        
-        // Create new arrays from the returned values to avoid working with frozen arrays
-        const skillsArray = [...result.skills];
-        const documentsArray = [...result.documents];
-        
+        // getProfile returns: (name, description, email, skills, documents, credits, reviews, userType)
+        const result = await contract.getProfile(userAddress);
         setProfile({
-          name: result.name,
-          description: result.description,
-          email: result.email,
-          skills: skillsArray,
-          documents: documentsArray
+          name: result[0],
+          description: result[1],
+          email: result[2],
+          skills: [...result[3]],
+          documents: [...result[4]],
+          userType: Number(result[7]) // Freelancer: 0, Client: 1
         });
-        console.log(result);
       } catch (err) {
         console.error("Error loading profile:", err);
         setError("Error loading profile from blockchain");
       }
     }
-    loadProfile();
+    loadProfile(userAddress);
   }, []);
 
-  // Add a new skill if not already added
+  // Add a new skill (only for freelancers)
   const handleAddSkill = (e) => {
     e.preventDefault();
     const skill = newSkill.trim();
@@ -71,7 +68,7 @@ function EditProfile() {
     }
   };
 
-  // Remove an existing skill
+  // Remove an existing skill (only for freelancers)
   const handleRemoveSkill = (skillToRemove) => {
     setProfile((prev) => ({
       ...prev,
@@ -79,7 +76,7 @@ function EditProfile() {
     }));
   };
 
-  // Updated file upload using Pinata
+  // File upload to Pinata (only for freelancers)
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -87,15 +84,10 @@ function EditProfile() {
     const formData = new FormData();
     formData.append("file", file);
 
-    const metadata = JSON.stringify({
-      name: file.name,
-    });
+    const metadata = JSON.stringify({ name: file.name });
     formData.append("pinataMetadata", metadata);
 
-    // Optional: Set Pinata options
-    const options = JSON.stringify({
-      cidVersion: 1,
-    });
+    const options = JSON.stringify({ cidVersion: 1 });
     formData.append("pinataOptions", options);
 
     try {
@@ -104,12 +96,11 @@ function EditProfile() {
         formData,
         {
           headers: {
-            pinata_api_key:  "631aba7bba8a85658b57",
+            pinata_api_key: "631aba7bba8a85658b57",
             pinata_secret_api_key: "ed236116b957abe0293ab4e1101662b755cb01051d78719021b7c9c3114cc693",
           },
         }
-        );
-      
+      );
       const cid = response.data.IpfsHash;
       console.log("File CID:", cid);
       setProfile((prev) => ({
@@ -141,9 +132,9 @@ function EditProfile() {
         signer
       );
       
-      // Create fresh arrays to ensure they're not frozen/read-only
-      const skillsToSubmit = [...profile.skills];
-      const documentsToSubmit = [...profile.documents];
+      // For clients, we pass empty arrays for skills and documents
+      const skillsToSubmit = profile.userType === 0 ? [...profile.skills] : [];
+      const documentsToSubmit = profile.userType === 0 ? [...profile.documents] : [];
       
       // updateProfile parameters: name, description, email, skills, documents
       const tx = await contract.updateProfile(
@@ -236,81 +227,86 @@ function EditProfile() {
               </div>
             </div>
 
-            {/* Skills */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Skills
-              </label>
-              <div className="flex flex-wrap gap-2 mb-3">
-                {profile.skills.map((skill) => (
-                  <span
-                    key={skill}
-                    className="bg-violet-50 text-violet-600 px-3 py-1 rounded-full text-sm flex items-center"
-                  >
-                    {skill}
+            {/* Role-based fields for Freelancer only */}
+            {profile.userType === 0 && (
+              <>
+                {/* Skills */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Skills
+                  </label>
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {profile.skills.map((skill) => (
+                      <span
+                        key={skill}
+                        className="bg-violet-50 text-violet-600 px-3 py-1 rounded-full text-sm flex items-center"
+                      >
+                        {skill}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveSkill(skill)}
+                          className="ml-2 hover:text-violet-800"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  <div className="flex space-x-2">
+                    <input
+                      type="text"
+                      value={newSkill}
+                      onChange={(e) => setNewSkill(e.target.value)}
+                      placeholder="Add a skill"
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+                    />
                     <button
                       type="button"
-                      onClick={() => handleRemoveSkill(skill)}
-                      className="ml-2 hover:text-violet-800"
+                      onClick={handleAddSkill}
+                      className="bg-violet-600 text-white px-4 py-2 rounded-lg hover:bg-violet-700 flex items-center space-x-1"
                     >
-                      <X className="h-4 w-4" />
+                      <Plus className="h-4 w-4" />
+                      <span>Add</span>
                     </button>
-                  </span>
-                ))}
-              </div>
-              <div className="flex space-x-2">
-                <input
-                  type="text"
-                  value={newSkill}
-                  onChange={(e) => setNewSkill(e.target.value)}
-                  placeholder="Add a skill"
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
-                />
-                <button
-                  type="button"
-                  onClick={handleAddSkill}
-                  className="bg-violet-600 text-white px-4 py-2 rounded-lg hover:bg-violet-700 flex items-center space-x-1"
-                >
-                  <Plus className="h-4 w-4" />
-                  <span>Add</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Certificates / Documents */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Certificates / Documents (Uploaded to Pinata)
-              </label>
-              {profile.documents && profile.documents.length > 0 ? (
-                <div className="space-y-4 mb-4">
-                  {profile.documents.map((cid, idx) => (
-                    <div key={idx} className="border border-gray-200 rounded-lg p-4">
-                      <div className="flex justify-between items-center">
-                        <input
-                          type="text"
-                          value={cid}
-                          readOnly
-                          className="font-medium text-gray-900 border-none p-0 focus:ring-0 w-full"
-                        />
-                      </div>
-                    </div>
-                  ))}
+                  </div>
                 </div>
-              ) : (
-                <p className="text-gray-500">No certificates/documents added.</p>
-              )}
-              <div className="flex flex-col space-y-2">
-                <input
-                  type="file"
-                  onChange={handleFileUpload}
-                  className="border border-gray-300 rounded-lg p-2"
-                />
-                <p className="text-sm text-gray-500">
-                  Select a file to upload to Pinata. The returned CID will be stored on-chain.
-                </p>
-              </div>
-            </div>
+
+                {/* Certificates / Documents */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Certificates / Documents (Uploaded to Pinata)
+                  </label>
+                  {profile.documents && profile.documents.length > 0 ? (
+                    <div className="space-y-4 mb-4">
+                      {profile.documents.map((cid, idx) => (
+                        <div key={idx} className="border border-gray-200 rounded-lg p-4">
+                          <div className="flex justify-between items-center">
+                            <input
+                              type="text"
+                              value={cid}
+                              readOnly
+                              className="font-medium text-gray-900 border-none p-0 focus:ring-0 w-full"
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-gray-500">No certificates/documents added.</p>
+                  )}
+                  <div className="flex flex-col space-y-2">
+                    <input
+                      type="file"
+                      onChange={handleFileUpload}
+                      className="border border-gray-300 rounded-lg p-2"
+                    />
+                    <p className="text-sm text-gray-500">
+                      Select a file to upload to Pinata. The returned CID will be stored on-chain.
+                    </p>
+                  </div>
+                </div>
+              </>
+            )}
 
             {/* Save Changes */}
             <div className="flex justify-end space-x-4">

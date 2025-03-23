@@ -4,7 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { ethers } from 'ethers';
 import contractArtifact from '../../../artifacts/contracts/DecentralizedFreelanceMarket.sol/DecentralizedFreelanceMarket.json';
 
-const contractAddress = "0x246f33CC52c4fcF82Ae43E2284E27414702A3A40";
+const contractAddress = "0xa261f0f9740e7eb019d6e0311f0327fe205290f1";
 
 function Login() {
   const [isLogin, setIsLogin] = useState(true);

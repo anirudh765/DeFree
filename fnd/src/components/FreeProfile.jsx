@@ -12,7 +12,7 @@ import {
 import { ethers } from 'ethers';
 import contractArtifact from '../../../artifacts/contracts/DecentralizedFreelanceMarket.sol/DecentralizedFreelanceMarket.json';
 
-const contractAddress = "0x246f33CC52c4fcF82Ae43E2284E27414702A3A40";
+const contractAddress = "0xa261f0f9740e7eb019d6e0311f0327fe205290f1";
 
 function Profile() {
   const [account, setAccount] = useState("");
@@ -49,7 +49,7 @@ function Profile() {
           signer
         );
         // getProfile returns: (name, description, email, skills, documents, credits, reviews, userType)
-        const result = await contract.getProfile();
+        const result = await contract.getProfile(userAddress);
         setProfile({
           name: result[0],
           description: result[1],
@@ -66,7 +66,7 @@ function Profile() {
       }
       setLoading(false);
     }
-    loadProfile();
+    loadProfile(account);
   }, []);
 
   // Calculate dynamic stats (for freelancers)
@@ -148,11 +148,11 @@ function Profile() {
                 <Mail className="h-4 w-4" />
                 <span>{profile.email}</span>
               </div>
-              {/* You can add location info here if available */}
+              {/* Optionally add location info */}
             </div>
 
             {/* Stats (for freelancers only) */}
-            {!profile.userType && (
+            {!profile.userType&& (
               <div className="mt-6 grid grid-cols-3 gap-6 py-6 border-y border-gray-100">
                 <div className="text-center">
                   <div className="flex items-center justify-center space-x-2">
@@ -202,25 +202,25 @@ function Profile() {
                   <h2 className="text-xl font-semibold mb-4">Certificates / Documents</h2>
                   {profile.documents.length > 0 ? (
                     <div className="mt-8 grid grid-cols-1 gap-4">
-                      {profile.documents.map((document, idx) => (
-  <div key={idx} className="border p-4 rounded-lg">
-    <iframe
-      src={`https://ipfs.io/ipfs/${document.cid}`}
-      title={`Document ${idx + 1}`}
-      className="w-full h-64 border rounded-lg"
-    />
-    <div className="mt-2">
-      <a
-        href={`https://ipfs.io/ipfs/${document.cid}`}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-violet-600 hover:underline"
-      >
-        Open Document in a New Tab
-      </a>
-    </div>
-  </div>
-))}
+                      {profile.documents.map((cid, idx) => (
+                        <div key={idx} className="border p-4 rounded-lg">
+                          <iframe
+                            src={`https://ipfs.io/ipfs/${cid}`}
+                            title={`Document ${idx + 1}`}
+                            className="w-full h-64 border rounded-lg"
+                          />
+                          <div className="mt-2">
+                            <a
+                              href={`https://ipfs.io/ipfs/${cid}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-violet-600 hover:underline"
+                            >
+                              Open Document in a New Tab
+                            </a>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   ) : (
                     <p className="text-gray-500">No documents uploaded.</p>

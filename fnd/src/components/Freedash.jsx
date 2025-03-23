@@ -10,7 +10,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { ethers } from 'ethers';
 import contractArtifact from '../../../artifacts/contracts/DecentralizedFreelanceMarket.sol/DecentralizedFreelanceMarket.json';
 
-const contractAddress = "0x246f33CC52c4fcF82Ae43E2284E27414702A3A40";
+const contractAddress = "0xa261f0f9740e7eb019d6e0311f0327fe205290f1";
 
 function App() {
   const [account, setAccount] = useState("");
@@ -20,6 +20,8 @@ function App() {
   const [completedProjects, setCompletedProjects] = useState([]);
   const [submittedProjects, setSubmittedProjects] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
+  const [submissionCid, setSubmissionCid] = useState("");
+  const [submittingProjectId, setSubmittingProjectId] = useState(null);
   const navigate = useNavigate();
 
   // Function to connect wallet manually if not already connected
@@ -70,89 +72,138 @@ function App() {
   const shortenAddress = (addr) =>
     addr ? `${addr.substring(0, 6)}...${addr.substring(addr.length - 4)}` : "";
 
-  // Helper: load blockchain data (jobs, projects, etc.)
-  useEffect(() => {
-    async function loadBlockchainData() {
-      if (!window.ethereum) {
-        console.error("MetaMask not installed");
-        return;
-      }
-      try {
-        const provider = new ethers.BrowserProvider(window.ethereum);
-        const signer = await provider.getSigner();
-        const userAddress = await signer.getAddress();
-        setAccount(userAddress);
-        
-        const contract = new ethers.Contract(
-          contractAddress,
-          contractArtifact.abi || contractArtifact,
-          signer
-        );
-        
-        // ----- Load Available Jobs -----
-        const projectCountBN = await contract.projectCounter();
-        const projectCount = projectCountBN.toNumber();
-        const available = [];
-        for (let i = 1; i <= projectCount; i++) {
-          const proj = await contract.projects(i);
-          // Check if status is Active (0n) and project not created by current user
-          if (proj[5] === 0n && proj[1].toLowerCase() !== userAddress.toLowerCase()) {
-            available.push({
-              id: Number(proj[0]),
-              title: proj[2],
-              budget: ethers.formatEther
-                ? ethers.formatEther(proj[4])
-                : ethers.utils.formatEther(proj[4]),
-              deadline: "N/A", // Not stored on-chain
-              skills: []       // Not stored on-chain
-            });
-          }
-        }
-        setAvailableJobs(available);
-
-        // ----- Load Ongoing Projects -----
-        const ongoingData = await contract.getFreelancerProjectsByStatus(1);
-        const ongoingParsed = ongoingData.map(proj => ({
-          id: Number(proj.id),
-          title: proj.title,
-          progress: 50,      // Dummy progress value
-          dueDate: "N/A"     // Not stored on-chain
-        }));
-        setOngoingProjects(ongoingParsed);
-
-        // ----- Load Completed Projects -----
-        const completedData = await contract.getFreelancerProjectsByStatus(2);
-        const completedParsed = completedData.map(proj => ({
-          id: Number(proj.id),
-          title: proj.title,
-          date: "N/A",       // No date info on-chain
-          rating: 0          // Rating not aggregated here
-        }));
-        setCompletedProjects(completedParsed);
-
-        // ----- Load Submitted Projects -----
-        const rejectedData = await contract.getFreelancerProjectsByStatus(4);
-        const doneData = await contract.getFreelancerProjectsByStatus(5);
-        const submittedParsed = [
-          ...rejectedData.map(proj => ({
-            id: Number(proj.id),
-            title: proj.title,
-            status: "Rejected",
-            client: proj.client
-          })),
-          ...doneData.map(proj => ({
-            id: Number(proj.id),
-            title: proj.title,
-            status: "Submitted",
-            client: proj.client
-          }))
-        ];
-        setSubmittedProjects(submittedParsed);
-
-      } catch (err) {
-        console.error("Error loading blockchain data:", err);
-      }
+  // Submit project function
+  async function submitProject(projectId, cid) {
+    if (!cid.trim()) {
+      alert("Please enter a valid submission CID (IPFS hash)");
+      return;
     }
+    
+    try {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const contract = new ethers.Contract(
+        contractAddress,
+        contractArtifact.abi || contractArtifact,
+        signer
+      );
+      
+      await contract.projectDone(projectId, cid);
+      
+      // Update the project lists after submission
+      const updatedOngoing = ongoingProjects.filter(proj => proj.id !== projectId);
+      setOngoingProjects(updatedOngoing);
+      
+      // Add to submitted projects
+      const newSubmittedProject = {
+        id: projectId,
+        title: ongoingProjects.find(p => p.id === projectId)?.title || "Project",
+        status: "Submitted",
+        client: "Awaiting review" // This would ideally be populated with actual client info
+      };
+      
+      setSubmittedProjects([...submittedProjects, newSubmittedProject]);
+      setSubmittingProjectId(null);
+      setSubmissionCid("");
+      
+      alert("Project successfully submitted for client review!");
+      
+      // Reload blockchain data to get fresh project statuses
+      loadBlockchainData();
+      
+    } catch (err) {
+      console.error("Error submitting project:", err);
+      alert(`Error submitting project: ${err.message || err}`);
+    }
+  }
+
+  // Helper: load blockchain data (jobs, projects, etc.)
+  async function loadBlockchainData() {
+    if (!window.ethereum) {
+      console.error("MetaMask not installed");
+      return;
+    }
+    try {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const userAddress = await signer.getAddress();
+      setAccount(userAddress);
+      
+      const contract = new ethers.Contract(
+        contractAddress,
+        contractArtifact.abi || contractArtifact,
+        signer
+      );
+      
+      // ----- Load Available Jobs -----
+      const projectCountBN = await contract.projectCounter();
+      const projectCount = projectCountBN;
+      const available = [];
+      for (let i = 1; i <= projectCount; i++) {
+        const proj = await contract.projects(i);
+        // Check if status is Active (0n) and project not created by current user
+        if (proj[5] === 0n && proj[1].toLowerCase() !== userAddress.toLowerCase()) {
+          available.push({
+            id: Number(proj[0]),
+            title: proj[2],
+            budget: ethers.formatEther
+              ? ethers.formatEther(proj[4])
+              : ethers.utils.formatEther(proj[4]),
+            deadline: "N/A", // Not stored on-chain
+            skills: []       // Not stored on-chain
+          });
+        }
+      }
+      setAvailableJobs(available);
+
+      // ----- Load Ongoing Projects -----
+      const ongoingData = await contract.getFreelancerProjectsByStatus(1);
+      const ongoingParsed = ongoingData.map(proj => ({
+        id: Number(proj.id),
+        title: proj.title,
+        progress: 50,      // Dummy progress value
+        dueDate: "N/A",     // Not stored on-chain
+        budget: ethers.formatEther
+          ? ethers.formatEther(proj[4])
+          : ethers.utils.formatEther(proj[4])
+      }));
+      setOngoingProjects(ongoingParsed);
+
+      // ----- Load Completed Projects -----
+      const completedData = await contract.getFreelancerProjectsByStatus(2);
+      const completedParsed = completedData.map(proj => ({
+        id: Number(proj.id),
+        title: proj.title,
+        date: "N/A",       // No date info on-chain
+        rating: 0          // Rating not aggregated here
+      }));
+      setCompletedProjects(completedParsed);
+
+      // ----- Load Submitted Projects -----
+      const rejectedData = await contract.getFreelancerProjectsByStatus(4);
+      const doneData = await contract.getFreelancerProjectsByStatus(5);
+      const submittedParsed = [
+        ...rejectedData.map(proj => ({
+          id: Number(proj.id),
+          title: proj.title,
+          status: "Rejected",
+          client: proj.client
+        })),
+        ...doneData.map(proj => ({
+          id: Number(proj.id),
+          title: proj.title,
+          status: "Submitted",
+          client: proj.client
+        }))
+      ];
+      setSubmittedProjects(submittedParsed);
+
+    } catch (err) {
+      console.error("Error loading blockchain data:", err);
+    }
+  }
+
+  useEffect(() => {
     loadBlockchainData();
   }, []);
 
@@ -257,8 +308,47 @@ function App() {
                       </span>
                     ))}
                   </div>
+                  <div className="mt-4 flex justify-end space-x-2">
+                    <button 
+                      onClick={async () => {
+                        try {
+                          const provider = new ethers.BrowserProvider(window.ethereum);
+                          const signer = await provider.getSigner();
+                          const contract = new ethers.Contract(
+                            contractAddress,
+                            contractArtifact.abi || contractArtifact,
+                            signer
+                          );
+                          
+                          await contract.applyProject(job.id);
+                          alert(`Successfully applied to project: ${job.title}`);
+                        } catch (err) {
+                          console.error("Error applying to project:", err);
+                          alert(`Error applying to project: ${err.message || err}`);
+                        }
+                      }}
+                      className="bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+                    >
+                      Apply
+                    </button>
+                    <button 
+                      onClick={() => {
+                        // Just skip this job (visual only - no blockchain interaction)
+                        const updatedJobs = availableJobs.filter(j => j.id !== job.id);
+                        setAvailableJobs(updatedJobs);
+                      }}
+                      className="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-md text-sm font-medium"
+                    >
+                      Skip
+                    </button>
+                  </div>
                 </div>
               ))}
+              {availableJobs.length === 0 && (
+                <div className="text-center py-4 text-gray-500">
+                  No available jobs at the moment.
+                </div>
+              )}
             </div>
           </div>
 
@@ -276,6 +366,9 @@ function App() {
                     <h3 className="font-medium text-gray-900">{project.title}</h3>
                     <span className="text-sm text-gray-500">Due {project.dueDate}</span>
                   </div>
+                  <div className="mt-2 text-sm text-gray-600">
+                    <span>Budget: {project.budget} ETH</span>
+                  </div>
                   <div className="mt-4">
                     <div className="flex justify-between text-sm mb-1">
                       <span className="text-gray-600">Progress</span>
@@ -288,8 +381,52 @@ function App() {
                       />
                     </div>
                   </div>
+                  
+                  {/* Submit button section - new addition */}
+                  <div className="mt-4">
+                    {submittingProjectId === project.id ? (
+                      <div className="space-y-2">
+                        <input
+                          type="text"
+                          placeholder="Enter submission CID (IPFS hash)"
+                          value={submissionCid}
+                          onChange={(e) => setSubmissionCid(e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                        />
+                        <div className="flex space-x-2">
+                          <button
+                            onClick={() => submitProject(project.id, submissionCid)}
+                            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md text-sm font-medium flex-1"
+                          >
+                            Confirm
+                          </button>
+                          <button
+                            onClick={() => {
+                              setSubmittingProjectId(null);
+                              setSubmissionCid("");
+                            }}
+                            className="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-md text-sm font-medium"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setSubmittingProjectId(project.id)}
+                        className="w-full mt-2 bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+                      >
+                        Submit Project
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
+              {ongoingProjects.length === 0 && (
+                <div className="text-center py-4 text-gray-500">
+                  No ongoing projects at the moment.
+                </div>
+              )}
             </div>
           </div>
 
@@ -321,6 +458,11 @@ function App() {
                   </div>
                 </div>
               ))}
+              {completedProjects.length === 0 && (
+                <div className="text-center py-4 text-gray-500">
+                  No completed projects yet.
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -348,6 +490,11 @@ function App() {
                 )}
               </div>
             ))}
+            {submittedProjects.length === 0 && (
+              <div className="text-center py-4 text-gray-500 bg-white rounded-xl shadow-sm p-4">
+                No submitted projects yet.
+              </div>
+            )}
           </div>
         </div>
       </div>

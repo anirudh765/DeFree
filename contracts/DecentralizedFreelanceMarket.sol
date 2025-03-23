@@ -36,6 +36,7 @@ contract DecentralizedFreelanceMarket {
         uint256 votesFor;
         uint256 votesAgainst;
         bool resolved;
+        uint256 creationTime; // Added timestamp for dispute creation
     }
 
     mapping(address => User) public users;
@@ -50,6 +51,7 @@ contract DecentralizedFreelanceMarket {
 
     uint256 public projectCounter;
     uint256 public disputeCounter;
+    uint256 public constant DISPUTE_LIFETIME = 1 minutes; // Dispute lifetime in seconds
 
     event UserRegistered(address indexed wallet, UserType userType);
     event ProfileUpdated(address indexed wallet);
@@ -90,6 +92,24 @@ contract DecentralizedFreelanceMarket {
         _;
     }
 
+    // New modifier to allow for both ongoing and done_by_freelancer statuses
+    modifier onlyApprovableProject(uint256 projectId) {
+        require(
+            projects[projectId].status == ProjectStatus.Ongoing || 
+            projects[projectId].status == ProjectStatus.Done_by_freelancer, 
+            "Project is not in approvable state"
+        );
+        _;
+    }
+
+    modifier checkDisputeLifetime(uint256 disputeId) {
+        Dispute storage dispute = disputes[disputeId];
+        if (!dispute.resolved && block.timestamp >= dispute.creationTime + DISPUTE_LIFETIME) {
+            resolveDisputeInternal(disputeId);
+        }
+        _;
+    }
+
     function registerUser(UserType userType, string memory name, string memory email) external {
         require(users[msg.sender].wallet == address(0), "User already registered");
         users[msg.sender] = User({
@@ -106,7 +126,7 @@ contract DecentralizedFreelanceMarket {
         emit UserRegistered(msg.sender, userType);
     }
 
-    function getProfile() external view onlyRegistered returns (
+    function getProfile(address account) external view onlyRegistered returns (
         string memory name, 
         string memory description, 
         string memory email, 
@@ -116,7 +136,7 @@ contract DecentralizedFreelanceMarket {
         uint256[] memory reviews,
         UserType userType
     ) {
-        User storage user = users[msg.sender];
+        User storage user = users[account];
         return (
             user.name,
             user.description,
@@ -146,6 +166,7 @@ contract DecentralizedFreelanceMarket {
         }
         emit ProfileUpdated(msg.sender);
     }
+    
     function createProject(string memory title, string memory description, uint256 budget) external onlyRegistered {
         require(users[msg.sender].userType == UserType.Client, "Only clients can create projects");
         projectCounter++;
@@ -189,16 +210,26 @@ contract DecentralizedFreelanceMarket {
         emit ProjectCompleted(projectId);
     }
 
-    function projectApprove(uint256 projectId, uint256 rating) external onlyClient(projectId) onlyOngoingProject(projectId) {
+    // Updated to use onlyApprovableProject modifier and include fund transfer
+    function projectApprove(uint256 projectId, uint256 rating) external onlyClient(projectId) onlyApprovableProject(projectId) {
         projects[projectId].status = ProjectStatus.Completed;
         users[projects[projectId].client].credits += 10;
         users[projects[projectId].freelancer].credits += 10;
         users[projects[projectId].freelancer].reviews.push(rating);
+        
+        // Transfer funds to freelancer upon approval
+        payable(projects[projectId].freelancer).transfer(projects[projectId].budget);
+        emit FundsTransferredFromEscrow(projectId, projects[projectId].freelancer, projects[projectId].budget);
+        
         emit ProjectApproved(projectId);
     }
 
-
-    function raiseDispute(uint256 projectId, string memory explanation) external onlyOngoingProject(projectId) {
+    function raiseDispute(uint256 projectId, string memory explanation) external {
+        require(
+            projects[projectId].status == ProjectStatus.Ongoing || 
+            projects[projectId].status == ProjectStatus.Done_by_freelancer,
+            "Project must be ongoing or marked as done by freelancer"
+        );
         require(
             projects[projectId].client == msg.sender || projects[projectId].freelancer == msg.sender,
             "Only client or freelancer can raise dispute"
@@ -211,13 +242,14 @@ contract DecentralizedFreelanceMarket {
             explanation: explanation,
             votesFor: 0,
             votesAgainst: 0,
-            resolved: false
+            resolved: false,
+            creationTime: block.timestamp // Set creation time to current timestamp
         });
         projects[projectId].status = ProjectStatus.OnDispute;
         emit DisputeRaised(disputeCounter, projectId);
     }
 
-    function voteDispute(uint256 disputeId, bool vote) external onlyRegistered {
+    function voteDispute(uint256 disputeId, bool vote) external onlyRegistered checkDisputeLifetime(disputeId) {
         require(!disputes[disputeId].resolved, "Dispute already resolved");
         require(!hasVoted[disputeId][msg.sender], "Already voted");
         uint256 creditWeight = users[msg.sender].credits / 10; // 1 credit = 0.1 vote weight (integer division)
@@ -230,29 +262,66 @@ contract DecentralizedFreelanceMarket {
         emit DisputeVoted(disputeId, msg.sender, vote);
     }
 
-    function resolveDispute(uint256 disputeId) external {
-        require(!disputes[disputeId].resolved, "Dispute already resolved");
+    // Function to check if dispute lifetime has expired and resolve if needed
+    function checkDisputeExpiry(uint256 disputeId) external checkDisputeLifetime(disputeId) {
+        // All logic is in the modifier
+    }
+
+    // Internal function to handle dispute resolution logic
+    function resolveDisputeInternal(uint256 disputeId) internal {
         Dispute storage dispute = disputes[disputeId];
+        if (dispute.resolved) return; // Skip if already resolved
+        
         Project storage project = projects[dispute.projectId];
 
+        bool clientWins;
         if (dispute.votesFor > dispute.votesAgainst) {
             if (users[dispute.raisedBy].userType == UserType.Client) {
                 project.status = ProjectStatus.Rejected;
-                emit DisputeResolved(disputeId, true);
-            } else if (users[dispute.raisedBy].userType == UserType.Freelancer) {
+                clientWins = true;
+            } else {
                 project.status = ProjectStatus.Completed;
-                emit DisputeResolved(disputeId, false);
+                clientWins = false;
             }
         } else {
             if (users[dispute.raisedBy].userType == UserType.Client) {
                 project.status = ProjectStatus.Completed;
-                emit DisputeResolved(disputeId, true);
-            } else if (users[dispute.raisedBy].userType == UserType.Freelancer) {
+                clientWins = false;
+            } else {
                 project.status = ProjectStatus.Rejected;
-                emit DisputeResolved(disputeId, false);
+                clientWins = true;
             }
         }
+        
         dispute.resolved = true;
+        emit DisputeResolved(disputeId, clientWins);
+        
+        // Automatically transfer funds based on the resolution
+        if (project.status == ProjectStatus.Completed) {
+            payable(project.freelancer).transfer(project.budget);
+            emit FundsTransferredFromEscrow(dispute.projectId, project.freelancer, project.budget);
+        } else {
+            payable(project.client).transfer(project.budget);
+            emit FundsTransferredFromEscrow(dispute.projectId, project.client, project.budget);
+        }
+    }
+
+    // Public function that anyone can call to resolve a dispute
+    function resolveDispute(uint256 disputeId) external checkDisputeLifetime(disputeId) {
+        require(!disputes[disputeId].resolved, "Dispute already resolved");
+        resolveDisputeInternal(disputeId);
+    }
+
+    function getDisputeTimeRemaining(uint256 disputeId) external view returns (uint256) {
+        Dispute storage dispute = disputes[disputeId];
+        if (dispute.resolved) {
+            return 0;
+        }
+        uint256 endTime = dispute.creationTime + DISPUTE_LIFETIME;
+        if (block.timestamp >= endTime) {
+            return 0;
+        }
+        return endTime - block.timestamp;
     }
 
     function getFreelancerProjectsByStatus(ProjectStatus status) external view returns (Project[] memory) {
@@ -293,7 +362,6 @@ contract DecentralizedFreelanceMarket {
         return result;
     }
 
-   
     function transferToEscrow(uint256 projectId) external payable onlyClient(projectId) onlyOngoingProject(projectId) {
         require(msg.value == projects[projectId].budget, "Incorrect amount sent");
         emit FundsTransferredToEscrow(projectId, msg.value);
@@ -312,5 +380,9 @@ contract DecentralizedFreelanceMarket {
             payable(project.client).transfer(project.budget);
             emit FundsTransferredFromEscrow(projectId, project.client, project.budget);
         }
+    }
+
+    function getFreelancerApplied(uint256 projectId) external view onlyRegistered onlyActiveProject(projectId) returns (address[] memory addresses) {
+        return Applied[projectId];
     }
 }
